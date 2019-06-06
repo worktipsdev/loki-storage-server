@@ -48,14 +48,14 @@ BOOST_AUTO_TEST_CASE(it_checks_a_valid_pow) {
     using namespace valid_pow;
     std::string messageHash;
     BOOST_CHECK_EQUAL(
-        checkPoW(nonce, timestamp, ttl, pubkey, data, messageHash, 10), true);
+        checkPoW(nonce, timestamp, ttl, pubkey, data, messageHash), true);
 }
 
 BOOST_AUTO_TEST_CASE(it_checks_an_invalid_nonce) {
     using namespace valid_pow;
     std::string messageHash;
     BOOST_CHECK_EQUAL(
-        checkPoW("AAAAAAABBCF=", timestamp, ttl, pubkey, data, messageHash, 10),
+        checkPoW("AAAAAAABBCF=", timestamp, ttl, pubkey, data, messageHash),
         false);
 }
 
@@ -63,16 +63,14 @@ BOOST_AUTO_TEST_CASE(it_checks_an_invalid_timestamp) {
     using namespace valid_pow;
     std::string messageHash;
     BOOST_CHECK_EQUAL(
-        checkPoW(nonce, "1549252653", ttl, pubkey, data, messageHash, 10),
-        false);
+        checkPoW(nonce, "1549252653", ttl, pubkey, data, messageHash), false);
 }
 
 BOOST_AUTO_TEST_CASE(it_checks_an_invalid_ttl) {
     using namespace valid_pow;
     std::string messageHash;
     BOOST_CHECK_EQUAL(
-        checkPoW(nonce, timestamp, "345601", pubkey, data, messageHash, 10),
-        false);
+        checkPoW(nonce, timestamp, "345601", pubkey, data, messageHash), false);
 }
 
 BOOST_AUTO_TEST_CASE(it_checks_an_invalid_pubkey) {
@@ -81,7 +79,7 @@ BOOST_AUTO_TEST_CASE(it_checks_an_invalid_pubkey) {
     BOOST_CHECK_EQUAL(checkPoW(nonce, timestamp, ttl,
                                "05d5970e75efb8e8daccd4d07f5f59e744c3aea25cec8bf"
                                "a3e43674c4a55875f4c",
-                               data, messageHash, 10),
+                               data, messageHash),
                       false);
 }
 
@@ -101,7 +99,7 @@ BOOST_AUTO_TEST_CASE(it_checks_an_invalid_data) {
         "ZPfNxSO9T6JvrGzRxofo7edadxn/hqi6dkHU7koHNAjSD2AP==";
     std::string messageHash;
     BOOST_CHECK_EQUAL(
-        checkPoW(nonce, timestamp, ttl, pubkey, wrong_data, messageHash, 10),
+        checkPoW(nonce, timestamp, ttl, pubkey, wrong_data, messageHash),
         false);
 }
 
