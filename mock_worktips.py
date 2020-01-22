@@ -10,7 +10,7 @@ SWARMS = """0 s5ejmf538y6kk7rxmpx9aei9fze11ox84wuakzmogkenffi7yeqy.snode e3eai9u
 """
 
 
-class lokidHandler(BaseHTTPRequestHandler):
+class worktipsdHandler(BaseHTTPRequestHandler):
   def do_POST(self):
     if self.path != '/json_rpc':
       # Only doing json_rpc
@@ -39,7 +39,7 @@ class lokidHandler(BaseHTTPRequestHandler):
 def run():
   # Server settings
   server_address = ('127.0.0.1', 7777)
-  httpd = HTTPServer(server_address, lokidHandler)
+  httpd = HTTPServer(server_address, worktipsdHandler)
   print('running server...')
   httpd.serve_forever()
 

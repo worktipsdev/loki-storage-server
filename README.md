@@ -1,5 +1,5 @@
-# loki-storage-server
-Storage server for Loki Service Nodes
+# worktips-storage-server
+Storage server for Worktips Service Nodes
 
 Requirements:
 * Boost >= 1.66 (for boost.beast)
@@ -11,7 +11,7 @@ git submodule update --init
 mkdir build && cd build
 cmake -DDISABLE_SNODE_SIGNATURE=OFF -DCMAKE_BUILD_TYPE=Release ..
 cmake --build .
-./loki-storage 0.0.0.0 8080
+./worktips-storage 0.0.0.0 8080
 ```
 
 The paths for Boost and OpenSSL can be specified by exporting the variables in the terminal before running `make`:
@@ -27,17 +27,17 @@ Then using something like Postman (https://www.getpostman.com/) you can hit the 
 HTTP POST http://127.0.0.1/store
 body: "hello world"
 headers:
-- X-Loki-recipient: "mypubkey"
-- X-Loki-ttl: "86400"
-- X-Loki-timestamp: "1540860811000"
-- X-Loki-pow-nonce: "xxxx..."
+- X-Worktips-recipient: "mypubkey"
+- X-Worktips-ttl: "86400"
+- X-Worktips-timestamp: "1540860811000"
+- X-Worktips-pow-nonce: "xxxx..."
 ```
 # get data
 ```
 HTTP GET http://127.0.0.1/retrieve
 headers:
-- X-Loki-recipient: "mypubkey"
-- X-Loki-last-hash: "" (optional)
+- X-Worktips-recipient: "mypubkey"
+- X-Worktips-last-hash: "" (optional)
 ```
 
 # unit tests

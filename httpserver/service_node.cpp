@@ -4,9 +4,9 @@
 #include "Item.hpp"
 #include "http_connection.h"
 #include "https_client.h"
-#include "loki_common.h"
-#include "loki_logger.h"
-#include "lokid_key.h"
+#include "worktips_common.h"
+#include "worktips_logger.h"
+#include "worktipsd_key.h"
 #include "net_stats.h"
 #include "serialization.h"
 #include "signature.h"
@@ -22,10 +22,10 @@
 #include <boost/bind.hpp>
 
 using json = nlohmann::json;
-using loki::storage::Item;
+using worktips::storage::Item;
 using namespace std::chrono_literals;
 
-namespace loki {
+namespace worktips {
 using http_server::connection_t;
 
 constexpr std::array<std::chrono::seconds, 8> RETRY_INTERVALS = {
@@ -55,14 +55,14 @@ void FailedRequestHandler::retry(std::shared_ptr<FailedRequestHandler>&& self) {
 
     attempt_count_ += 1;
     if (attempt_count_ > RETRY_INTERVALS.size()) {
-        LOKI_LOG(debug, "Gave up after {} attempts", attempt_count_);
+        WORKTIPS_LOG(debug, "Gave up after {} attempts", attempt_count_);
         if (give_up_callback_)
             (*give_up_callback_)();
         return;
     }
 
     retry_timer_.expires_after(RETRY_INTERVALS[attempt_count_ - 1]);
-    LOKI_LOG(debug, "Will retry in {} secs",
+    WORKTIPS_LOG(debug, "Will retry in {} secs",
              RETRY_INTERVALS[attempt_count_ - 1].count());
 
     retry_timer_.async_wait(
@@ -79,7 +79,7 @@ void FailedRequestHandler::retry(std::shared_ptr<FailedRequestHandler>&& self) {
                 ioc, sn, req,
                 [self = std::move(self)](sn_response_t&& res) mutable {
                     if (res.error_code != SNodeError::NO_ERROR) {
-                        LOKI_LOG(debug, "Could not relay one: {} (attempt #{})",
+                        WORKTIPS_LOG(debug, "Could not relay one: {} (attempt #{})",
                                  self->sn_, self->attempt_count_);
                         self->retry(std::move(self));
                     }
@@ -88,7 +88,7 @@ void FailedRequestHandler::retry(std::shared_ptr<FailedRequestHandler>&& self) {
 }
 
 FailedRequestHandler::~FailedRequestHandler() {
-    LOKI_LOG(trace, "~FailedRequestHandler()");
+    WORKTIPS_LOG(trace, "~FailedRequestHandler()");
 }
 
 void FailedRequestHandler::init_timer() { retry(shared_from_this()); }
@@ -101,7 +101,7 @@ constexpr std::chrono::milliseconds SWARM_UPDATE_INTERVAL = 1000ms;
 #endif
 constexpr std::chrono::seconds STATS_CLEANUP_INTERVAL = 60min;
 constexpr std::chrono::seconds PING_PEERS_INTERVAL = 10s;
-constexpr std::chrono::minutes LOKID_PING_INTERVAL = 5min;
+constexpr std::chrono::minutes WORKTIPSD_PING_INTERVAL = 5min;
 constexpr std::chrono::minutes POW_DIFFICULTY_UPDATE_INTERVAL = 10min;
 constexpr std::chrono::seconds VERSION_CHECK_INTERVAL = 10min;
 constexpr int CLIENT_RETRIEVE_MESSAGE_LIMIT = 10;
@@ -145,37 +145,37 @@ static bool verify_message(const message_t& msg,
 
 ServiceNode::ServiceNode(boost::asio::io_context& ioc,
                          boost::asio::io_context& worker_ioc, uint16_t port,
-                         const lokid_key_pair_t& lokid_key_pair,
-                         const loki::lokid_key_pair_t& key_pair_x25519,
+                         const worktipsd_key_pair_t& worktipsd_key_pair,
+                         const worktips::worktipsd_key_pair_t& key_pair_x25519,
                          const std::string& db_location,
-                         LokidClient& lokid_client, const bool force_start)
+                         WorktipsdClient& worktipsd_client, const bool force_start)
     : ioc_(ioc), worker_ioc_(worker_ioc),
       db_(std::make_unique<Database>(ioc, db_location)),
-      swarm_update_timer_(ioc), lokid_ping_timer_(ioc),
+      swarm_update_timer_(ioc), worktipsd_ping_timer_(ioc),
       stats_cleanup_timer_(ioc), pow_update_timer_(worker_ioc),
       check_version_timer_(worker_ioc), peer_ping_timer_(ioc),
-      relay_timer_(ioc), lokid_key_pair_(lokid_key_pair),
-      lokid_key_pair_x25519_(key_pair_x25519), lokid_client_(lokid_client),
+      relay_timer_(ioc), worktipsd_key_pair_(worktipsd_key_pair),
+      worktipsd_key_pair_x25519_(key_pair_x25519), worktipsd_client_(worktipsd_client),
       force_start_(force_start) {
 
     char buf[64] = {0};
-    if (!util::base32z_encode(lokid_key_pair_.public_key, buf)) {
+    if (!util::base32z_encode(worktipsd_key_pair_.public_key, buf)) {
         throw std::runtime_error("Could not encode our public key");
     }
 
     const std::string addr = buf;
-    LOKI_LOG(info, "Our loki address: {}", addr);
+    WORKTIPS_LOG(info, "Our worktips address: {}", addr);
 
-    const auto pk_hex = util::as_hex(lokid_key_pair_.public_key);
+    const auto pk_hex = util::as_hex(worktipsd_key_pair_.public_key);
 
     // TODO: get rid of "unused" fields
     our_address_ = sn_record_t(port, addr, pk_hex, "unused", "unused", "1.1.1.1");
 
     // TODO: fail hard if we can't encode our public key
-    LOKI_LOG(info, "Read our snode address: {}", our_address_);
+    WORKTIPS_LOG(info, "Read our snode address: {}", our_address_);
     swarm_ = std::make_unique<Swarm>(our_address_);
 
-    LOKI_LOG(info, "Requesting initial swarm state");
+    WORKTIPS_LOG(info, "Requesting initial swarm state");
 
 #ifndef INTEGRATION_TEST
     bootstrap_data();
@@ -185,7 +185,7 @@ ServiceNode::ServiceNode(boost::asio::io_context& ioc,
 
 
     swarm_timer_tick();
-    lokid_ping_timer_tick();
+    worktipsd_ping_timer_tick();
     cleanup_timer_tick();
 
     ping_peers_tick();
@@ -204,13 +204,13 @@ static block_update_t
 parse_swarm_update(const std::shared_ptr<std::string>& response_body) {
 
     if (!response_body) {
-        LOKI_LOG(critical, "Bad lokid rpc response: no response body");
+        WORKTIPS_LOG(critical, "Bad worktipsd rpc response: no response body");
         throw std::runtime_error("Failed to parse swarm update");
     }
     const json body = json::parse(*response_body, nullptr, false);
     if (body.is_discarded()) {
-        LOKI_LOG(trace, "Response body: {}", *response_body);
-        LOKI_LOG(critical, "Bad lokid rpc response: invalid json");
+        WORKTIPS_LOG(trace, "Response body: {}", *response_body);
+        WORKTIPS_LOG(critical, "Bad worktipsd rpc response: invalid json");
         throw std::runtime_error("Failed to parse swarm update");
     }
     std::map<swarm_id_t, std::vector<sn_record_t>> swarm_map;
@@ -267,8 +267,8 @@ parse_swarm_update(const std::shared_ptr<std::string>& response_body) {
         }
 
     } catch (...) {
-        LOKI_LOG(trace, "swarm repsonse: {}", body.dump(2));
-        LOKI_LOG(critical, "Bad lokid rpc response: invalid json fields");
+        WORKTIPS_LOG(trace, "swarm repsonse: {}", body.dump(2));
+        WORKTIPS_LOG(critical, "Bad worktipsd rpc response: invalid json fields");
         throw std::runtime_error("Failed to parse swarm update");
     }
 
@@ -280,7 +280,7 @@ parse_swarm_update(const std::shared_ptr<std::string>& response_body) {
 }
 
 void ServiceNode::bootstrap_data() {
-    LOKI_LOG(trace, "Bootstrapping peer data");
+    WORKTIPS_LOG(trace, "Bootstrapping peer data");
 
     json params;
     json fields;
@@ -297,18 +297,18 @@ void ServiceNode::bootstrap_data() {
     params["fields"] = fields;
 
     std::vector<std::pair<std::string, uint16_t>> seed_nodes;
-    if (loki::is_mainnet()) {
-        seed_nodes = {{{"storage.seed1.loki.network", 22023},
-                       {"storage.seed2.loki.network", 38157},
+    if (worktips::is_mainnet()) {
+        seed_nodes = {{{"storage.seed1.worktips.network", 22023},
+                       {"storage.seed2.worktips.network", 38157},
                        {"imaginary.stream", 38157}}};
     } else {
-        seed_nodes = {{{"storage.testnetseed1.loki.network", 38157}}};
+        seed_nodes = {{{"storage.testnetseed1.worktips.network", 38157}}};
     }
 
     auto req_counter = std::make_shared<int>(0);
 
     for (auto seed_node : seed_nodes) {
-        lokid_client_.make_custom_lokid_request(
+        worktipsd_client_.make_custom_worktipsd_request(
             seed_node.first, seed_node.second, "get_n_service_nodes", params,
             [this, seed_node, req_counter,
              node_count = seed_nodes.size()](const sn_response_t&& res) {
@@ -319,13 +319,13 @@ void ServiceNode::bootstrap_data() {
                         // (or changed to point to testnet seeds)
                         on_bootstrap_update(bu);
                     } catch (const std::exception& e) {
-                        LOKI_LOG(
+                        WORKTIPS_LOG(
                             error,
                             "Exception caught while bootstrapping from {}: {}",
                             seed_node.first, e.what());
                     }
                 } else {
-                    LOKI_LOG(error, "Failed to contact bootstrap node {}",
+                    WORKTIPS_LOG(error, "Failed to contact bootstrap node {}",
                              seed_node.first);
                 }
 
@@ -336,7 +336,7 @@ void ServiceNode::bootstrap_data() {
                     // (successfully or not) all seed nodes, just assume we have
                     // finished syncing. (Otherwise we will never get a chance
                     // to update syncing status.)
-                    LOKI_LOG(
+                    WORKTIPS_LOG(
                         warn,
                         "Could not contact any of the seed nodes to get target "
                         "height. Going to assume our height is correct.");
@@ -377,7 +377,7 @@ ServiceNode::~ServiceNode() {
 void ServiceNode::relay_data_reliable(const std::shared_ptr<request_t>& req,
                                       const sn_record_t& sn) const {
 
-    LOKI_LOG(trace, "Relaying data to: {}", sn);
+    WORKTIPS_LOG(trace, "Relaying data to: {}", sn);
 
     // Note: often one of the reason for failure here is that the node has just
     // deregistered but our SN hasn't updated its swarm list yet.
@@ -386,19 +386,19 @@ void ServiceNode::relay_data_reliable(const std::shared_ptr<request_t>& req,
             all_stats_.record_request_failed(sn);
 
             if (res.error_code == SNodeError::NO_REACH) {
-                LOKI_LOG(debug,
+                WORKTIPS_LOG(debug,
                          "Could not relay data to {} at first attempt: "
                          "(Unreachable)",
                          sn);
             } else if (res.error_code == SNodeError::ERROR_OTHER) {
-                LOKI_LOG(debug,
+                WORKTIPS_LOG(debug,
                          "Could not relay data to {} at first attempt: "
                          "(Generic error)",
                          sn);
             }
 
             std::function<void()> give_up_cb = [this, sn]() {
-                LOKI_LOG(debug, "Failed to send a request to: {}", sn);
+                WORKTIPS_LOG(debug, "Failed to send a request to: {}", sn);
                 this->all_stats_.record_push_failed(sn);
             };
 
@@ -415,10 +415,10 @@ void ServiceNode::register_listener(const std::string& pk,
 
     // NOTE: it is the responsibility of connection_t to deregister itself!
     pk_to_listeners[pk].push_back(c);
-    LOKI_LOG(debug, "Register pubkey: {}, total pubkeys: {}", pk,
+    WORKTIPS_LOG(debug, "Register pubkey: {}, total pubkeys: {}", pk,
              pk_to_listeners.size());
 
-    LOKI_LOG(debug, "Number of connections listening for {}: {}", pk,
+    WORKTIPS_LOG(debug, "Number of connections listening for {}: {}", pk,
              pk_to_listeners[pk].size());
 }
 
@@ -429,10 +429,10 @@ void ServiceNode::remove_listener(const std::string& pk,
     if (it == pk_to_listeners.end()) {
         /// This will sometimes happen because we reset all listeners on
         /// push_all
-        LOKI_LOG(debug, "Trying to remove an unknown pk from the notification "
+        WORKTIPS_LOG(debug, "Trying to remove an unknown pk from the notification "
                         "map. Operation ignored.");
     } else {
-        LOKI_LOG(trace,
+        WORKTIPS_LOG(trace,
                  "Deregistering notification for connection {} for pk {}",
                  c->conn_idx, pk);
         auto& cs = it->second;
@@ -444,10 +444,10 @@ void ServiceNode::remove_listener(const std::string& pk,
         cs.erase(new_end, cs.end());
 
         if (count == 0) {
-            LOKI_LOG(debug, "Connection {} in not registered for pk {}",
+            WORKTIPS_LOG(debug, "Connection {} in not registered for pk {}",
                      c->conn_idx, pk);
         } else if (count > 1) {
-            LOKI_LOG(debug,
+            WORKTIPS_LOG(debug,
                      "Multiple registrations ({}) for connection {} for pk {}",
                      count, c->conn_idx, pk);
         }
@@ -463,7 +463,7 @@ void ServiceNode::notify_listeners(const std::string& pk,
 
         auto& listeners = it->second;
 
-        LOKI_LOG(debug, "number of notified listeners: {}", listeners.size());
+        WORKTIPS_LOG(debug, "number of notified listeners: {}", listeners.size());
 
         for (auto& c : listeners) {
             c->notify(msg);
@@ -495,7 +495,7 @@ bool ServiceNode::process_store(const message_t& msg) {
     /// only accept a message if we are in a swarm
     if (!swarm_) {
         // This should never be printed now that we have "snode_ready"
-        LOKI_LOG(error, "error: my swarm in not initialized");
+        WORKTIPS_LOG(error, "error: my swarm in not initialized");
         return false;
     }
 
@@ -528,18 +528,18 @@ void ServiceNode::process_proxy_req(const std::string& req_body,
     auto sn = swarm_->find_node_by_ed25519_pk(target_snode);
 
     if (!sn) {
-        LOKI_LOG(debug, "Could not find target snode for proxy: {}", target_snode);
+        WORKTIPS_LOG(debug, "Could not find target snode for proxy: {}", target_snode);
         on_proxy_response(sn_response_t{SNodeError::ERROR_OTHER, nullptr, boost::none});
         return;
     }
 
-    LOKI_LOG(trace, "Target Snode: {}", target_snode);
+    WORKTIPS_LOG(trace, "Target Snode: {}", target_snode);
 
     auto body_clone = req_body;
 
     auto req = build_post_request("/swarms/proxy_exit", std::move(body_clone));
 
-    req->insert(LOKI_SENDER_KEY_HEADER, sender_key);
+    req->insert(WORKTIPS_SENDER_KEY_HEADER, sender_key);
 
     this->sign_request(req);
 
@@ -551,18 +551,18 @@ void ServiceNode::save_if_new(const message_t& msg) {
     if (db_->store(msg.hash, msg.pub_key, msg.data, msg.ttl, msg.timestamp,
                    msg.nonce)) {
         notify_listeners(msg.pub_key, msg);
-        LOKI_LOG(trace, "saved message: {}", msg.data);
+        WORKTIPS_LOG(trace, "saved message: {}", msg.data);
     }
 }
 
 void ServiceNode::save_bulk(const std::vector<Item>& items) {
 
     if (!db_->bulk_store(items)) {
-        LOKI_LOG(error, "failed to save batch to the database");
+        WORKTIPS_LOG(error, "failed to save batch to the database");
         return;
     }
 
-    LOKI_LOG(trace, "saved messages count: {}", items.size());
+    WORKTIPS_LOG(trace, "saved messages count: {}", items.size());
 
     // For batches, it is not trivial to get the list of saved (new)
     // messages, so we are only going to "notify" clients with no data
@@ -589,23 +589,23 @@ void ServiceNode::on_swarm_update(const block_update_t& bu) {
 
     /// We don't have anything to do until we have synced
     if (syncing_) {
-        LOKI_LOG(debug, "Still syncing: {}/{}", bu.height, target_height_);
+        WORKTIPS_LOG(debug, "Still syncing: {}/{}", bu.height, target_height_);
         return;
     }
 
     if (bu.block_hash != block_hash_) {
 
-        LOKI_LOG(debug, "new block, height: {}, hash: {}", bu.height,
+        WORKTIPS_LOG(debug, "new block, height: {}, hash: {}", bu.height,
                  bu.block_hash);
 
         if (bu.height > block_height_ + 1 && block_height_ != 0) {
-            LOKI_LOG(warn, "Skipped some block(s), old: {} new: {}",
+            WORKTIPS_LOG(warn, "Skipped some block(s), old: {} new: {}",
                      block_height_, bu.height);
             /// TODO: if we skipped a block, should we try to run peer tests for
             /// them as well?
         } else if (bu.height <= block_height_) {
             // TODO: investigate how testing will be affected under reorg
-            LOKI_LOG(warn,
+            WORKTIPS_LOG(warn,
                      "new block height is not higher than the current height");
         }
 
@@ -615,7 +615,7 @@ void ServiceNode::on_swarm_update(const block_update_t& bu) {
         block_hashes_cache_.push_back(std::make_pair(bu.height, bu.block_hash));
 
     } else {
-        LOKI_LOG(trace, "already seen this block");
+        WORKTIPS_LOG(trace, "already seen this block");
         return;
     }
 
@@ -625,12 +625,12 @@ void ServiceNode::on_swarm_update(const block_update_t& bu) {
 
     std::string reason;
     if (!snode_ready(boost::optional<std::string&>(reason))) {
-        LOKI_LOG(warn, "Storage server is still not ready: {}", reason);
+        WORKTIPS_LOG(warn, "Storage server is still not ready: {}", reason);
         return;
     } else {
         static bool active = false;
         if (!active) {
-            LOKI_LOG(info, "Storage server is now active!");
+            WORKTIPS_LOG(info, "Storage server is now active!");
 
             relay_timer_.expires_after(RELAY_INTERVAL);
             relay_timer_.async_wait(
@@ -668,7 +668,7 @@ void ServiceNode::relay_buffered_messages() {
     if (relay_buffer_.empty())
         return;
 
-    LOKI_LOG(debug, "Relaying {} messages from buffer to {} nodes", relay_buffer_.size(), swarm_->other_nodes().size());
+    WORKTIPS_LOG(debug, "Relaying {} messages from buffer to {} nodes", relay_buffer_.size(), swarm_->other_nodes().size());
 
     this->relay_messages(relay_buffer_, swarm_->other_nodes());
     relay_buffer_.clear();
@@ -695,7 +695,7 @@ void ServiceNode::pow_difficulty_timer_tick(const pow_dns_callback_t cb) {
 }
 
 void ServiceNode::swarm_timer_tick() {
-    LOKI_LOG(trace, "Swarm timer tick");
+    WORKTIPS_LOG(trace, "Swarm timer tick");
 
     json params;
     json fields;
@@ -716,7 +716,7 @@ void ServiceNode::swarm_timer_tick() {
 
     params["active_only"] = false;
 
-    lokid_client_.make_lokid_request(
+    worktipsd_client_.make_worktipsd_request(
         "get_n_service_nodes", params, [this](const sn_response_t&& res) {
             if (res.error_code == SNodeError::NO_ERROR) {
                 try {
@@ -724,11 +724,11 @@ void ServiceNode::swarm_timer_tick() {
                     if (!bu.unchanged)
                         on_swarm_update(bu);
                 } catch (const std::exception& e) {
-                    LOKI_LOG(error, "Exception caught on swarm update: {}",
+                    WORKTIPS_LOG(error, "Exception caught on swarm update: {}",
                              e.what());
                 }
             } else {
-                LOKI_LOG(critical, "Failed to contact local Lokid");
+                WORKTIPS_LOG(critical, "Failed to contact local Worktipsd");
             }
 
             // It would make more sense to wait the difference between the time
@@ -757,7 +757,7 @@ void ServiceNode::ping_peers_tick() {
     /// TODO: To be safe, let's not even test peers until we
     /// have reached the right hardfork height
     if (hardfork_ < ENFORCED_REACHABILITY_HARDFORK) {
-        LOKI_LOG(debug, "Have not reached HF13, skipping reachability tests");
+        WORKTIPS_LOG(debug, "Have not reached HF13, skipping reachability tests");
         return;
     }
 
@@ -769,30 +769,30 @@ void ServiceNode::ping_peers_tick() {
     if (random_node) {
 
         if (random_node == our_address_) {
-            LOKI_LOG(debug, "Would test our own node, skipping");
+            WORKTIPS_LOG(debug, "Would test our own node, skipping");
         } else {
-            LOKI_LOG(debug, "Selected random node for testing: {}",
+            WORKTIPS_LOG(debug, "Selected random node for testing: {}",
                      (*random_node).pub_key_hex());
             test_reachability(*random_node);
         }
     } else {
-        LOKI_LOG(debug, "No nodes to test for reachability");
+        WORKTIPS_LOG(debug, "No nodes to test for reachability");
     }
 
     // TODO: there is an edge case where SS reported some offending
     // nodes, but then restarted, so SS won't give priority to those
     // nodes. SS will still test them eventually (through random selection) and
-    // update Lokid, but this scenario could be made more robust.
+    // update Worktipsd, but this scenario could be made more robust.
     const auto offline_node = reach_records_.next_to_test();
 
     if (offline_node) {
         const boost::optional<sn_record_t> sn =
             swarm_->get_node_by_pk(*offline_node);
-        LOKI_LOG(debug, "No offline nodes to test for reachability yet");
+        WORKTIPS_LOG(debug, "No offline nodes to test for reachability yet");
         if (sn) {
             test_reachability(*sn);
         } else {
-            LOKI_LOG(debug, "Node does not seem to exist anymore: {}",
+            WORKTIPS_LOG(debug, "Node does not seem to exist anymore: {}",
                      *offline_node);
             // delete its entry from test records as irrelevant
             reach_records_.expire(*offline_node);
@@ -803,13 +803,13 @@ void ServiceNode::ping_peers_tick() {
 void ServiceNode::sign_request(std::shared_ptr<request_t> &req) const {
     // TODO: investigate why we are not signing headers
     const auto hash = hash_data(req->body());
-    const auto signature = generate_signature(hash, lokid_key_pair_);
+    const auto signature = generate_signature(hash, worktipsd_key_pair_);
     attach_signature(req, signature);
 }
 
 void ServiceNode::test_reachability(const sn_record_t& sn) {
 
-    LOKI_LOG(debug, "Testing node for reachability {}", sn);
+    WORKTIPS_LOG(debug, "Testing node for reachability {}", sn);
 
     auto callback = [this, sn](sn_response_t&& res) {
         this->process_reach_test_response(std::move(res), sn.pub_key_base32z());
@@ -823,14 +823,14 @@ void ServiceNode::test_reachability(const sn_record_t& sn) {
     make_sn_request(ioc_, sn, req, std::move(callback));
 }
 
-void ServiceNode::lokid_ping_timer_tick() {
+void ServiceNode::worktipsd_ping_timer_tick() {
 
-    /// TODO: Note that this is not actually an SN response! (but Lokid)
+    /// TODO: Note that this is not actually an SN response! (but Worktipsd)
     auto cb = [](const sn_response_t&& res) {
         if (res.error_code == SNodeError::NO_ERROR) {
 
             if (!res.body) {
-                LOKI_LOG(critical, "Empty body on Lokid ping");
+                WORKTIPS_LOG(critical, "Empty body on Worktipsd ping");
                 return;
             }
 
@@ -841,18 +841,18 @@ void ServiceNode::lokid_ping_timer_tick() {
                     res_json.at("result").at("status").get<std::string>();
 
                 if (status == "OK") {
-                    LOKI_LOG(info, "Successfully pinged Lokid");
+                    WORKTIPS_LOG(info, "Successfully pinged Worktipsd");
                 } else {
-                    LOKI_LOG(critical, "Could not ping Lokid. Status: {}",
+                    WORKTIPS_LOG(critical, "Could not ping Worktipsd. Status: {}",
                              status);
                 }
             } catch (...) {
-                LOKI_LOG(critical,
-                         "Could not ping Lokid: bad json in response");
+                WORKTIPS_LOG(critical,
+                         "Could not ping Worktipsd: bad json in response");
             }
 
         } else {
-            LOKI_LOG(critical, "Could not ping Lokid");
+            WORKTIPS_LOG(critical, "Could not ping Worktipsd");
         }
     };
 
@@ -860,12 +860,12 @@ void ServiceNode::lokid_ping_timer_tick() {
     params["version_major"] = VERSION_MAJOR;
     params["version_minor"] = VERSION_MINOR;
     params["version_patch"] = VERSION_PATCH;
-    lokid_client_.make_lokid_request("storage_server_ping", params,
+    worktipsd_client_.make_worktipsd_request("storage_server_ping", params,
                                      std::move(cb));
 
-    lokid_ping_timer_.expires_after(LOKID_PING_INTERVAL);
-    lokid_ping_timer_.async_wait(
-        boost::bind(&ServiceNode::lokid_ping_timer_tick, this));
+    worktipsd_ping_timer_.expires_after(WORKTIPSD_PING_INTERVAL);
+    worktipsd_ping_timer_.async_wait(
+        boost::bind(&ServiceNode::worktipsd_ping_timer_tick, this));
 }
 
 static std::vector<std::shared_ptr<request_t>>
@@ -884,7 +884,7 @@ void ServiceNode::perform_blockchain_test(
     bc_test_params_t test_params,
     std::function<void(blockchain_test_answer_t)>&& cb) const {
 
-    LOKI_LOG(debug, "Delegating blockchain test to Lokid");
+    WORKTIPS_LOG(debug, "Delegating blockchain test to Worktipsd");
 
     nlohmann::json params;
 
@@ -893,14 +893,14 @@ void ServiceNode::perform_blockchain_test(
 
     auto on_resp = [cb = std::move(cb)](const sn_response_t& resp) {
         if (resp.error_code != SNodeError::NO_ERROR || !resp.body) {
-            LOKI_LOG(critical, "Could not send blockchain request to Lokid");
+            WORKTIPS_LOG(critical, "Could not send blockchain request to Worktipsd");
             return;
         }
 
         const json body = json::parse(*resp.body, nullptr, false);
 
         if (body.is_discarded()) {
-            LOKI_LOG(critical, "Bad Lokid rpc response: invalid json");
+            WORKTIPS_LOG(critical, "Bad Worktipsd rpc response: invalid json");
             return;
         }
 
@@ -914,7 +914,7 @@ void ServiceNode::perform_blockchain_test(
         }
     };
 
-    lokid_client_.make_lokid_request("perform_blockchain_test", params,
+    worktipsd_client_.make_worktipsd_request("perform_blockchain_test", params,
                                      std::move(on_resp));
 }
 
@@ -927,19 +927,19 @@ void ServiceNode::attach_signature(std::shared_ptr<request_t>& request,
     raw_sig.insert(raw_sig.end(), sig.r.begin(), sig.r.end());
 
     const std::string sig_b64 = util::base64_encode(raw_sig);
-    request->set(LOKI_SNODE_SIGNATURE_HEADER, sig_b64);
+    request->set(WORKTIPS_SNODE_SIGNATURE_HEADER, sig_b64);
 
     attach_pubkey(request);
 }
 
 void ServiceNode::attach_pubkey(std::shared_ptr<request_t>& request) const {
-    request->set(LOKI_SENDER_SNODE_PUBKEY_HEADER,
+    request->set(WORKTIPS_SENDER_SNODE_PUBKEY_HEADER,
                  our_address_.pub_key_base32z());
 }
 
 void abort_if_integration_test() {
 #ifdef INTEGRATION_TEST
-    LOKI_LOG(critical, "ABORT in integration test");
+    WORKTIPS_LOG(critical, "ABORT in integration test");
     abort();
 #endif
 }
@@ -953,7 +953,7 @@ void ServiceNode::process_storage_test_response(const sn_record_t& testee,
         // TODO: retry here, otherwise tests sometimes fail (when SN not
         // running yet)
         this->all_stats_.record_storage_test_result(testee, ResultType::OTHER);
-        LOKI_LOG(debug, "Failed to send a storage test request to snode: {}",
+        WORKTIPS_LOG(debug, "Failed to send a storage test request to snode: {}",
                  testee);
         return;
     }
@@ -962,7 +962,7 @@ void ServiceNode::process_storage_test_response(const sn_record_t& testee,
     // status in response body and check the answer
     if (!res.body) {
         this->all_stats_.record_storage_test_result(testee, ResultType::OTHER);
-        LOKI_LOG(debug, "Empty body in storage test response");
+        WORKTIPS_LOG(debug, "Empty body in storage test response");
         return;
     }
 
@@ -978,30 +978,30 @@ void ServiceNode::process_storage_test_response(const sn_record_t& testee,
 
             const auto value = res_json.at("value").get<std::string>();
             if (value == item.data) {
-                LOKI_LOG(debug,
+                WORKTIPS_LOG(debug,
                          "Storage test is successful for: {} at height: {}",
                          testee, test_height);
                 result = ResultType::OK;
             } else {
-                LOKI_LOG(debug,
+                WORKTIPS_LOG(debug,
                          "Test answer doesn't match for: {} at height {}",
                          testee, test_height);
 #ifdef INTEGRATION_TEST
-                LOKI_LOG(warn, "got: {} expected: {}", value, item.data);
+                WORKTIPS_LOG(warn, "got: {} expected: {}", value, item.data);
 #endif
                 result = ResultType::MISMATCH;
             }
 
         } else if (status == "wrong request") {
-            LOKI_LOG(debug, "Storage test rejected by testee");
+            WORKTIPS_LOG(debug, "Storage test rejected by testee");
             result = ResultType::REJECTED;
         } else {
             result = ResultType::OTHER;
-            LOKI_LOG(debug, "Storage test failed for some other reason");
+            WORKTIPS_LOG(debug, "Storage test failed for some other reason");
         }
     } catch (...) {
         result = ResultType::OTHER;
-        LOKI_LOG(debug, "Invalid json in storage test response");
+        WORKTIPS_LOG(debug, "Invalid json in storage test response");
     }
 
     this->all_stats_.record_storage_test_result(testee, result);
@@ -1055,7 +1055,7 @@ void ServiceNode::report_node_reachability(const sn_pub_key_t& sn_pk,
     const auto sn = swarm_->get_node_by_pk(sn_pk);
 
     if (!sn) {
-        LOKI_LOG(debug, "No Service node with pubkey: {}", sn_pk);
+        WORKTIPS_LOG(debug, "No Service node with pubkey: {}", sn_pk);
         return;
     }
 
@@ -1064,17 +1064,17 @@ void ServiceNode::report_node_reachability(const sn_pub_key_t& sn_pk,
     params["pubkey"] = (*sn).pub_key_hex();
     params["passed"] = reachable;
 
-    /// Note that if Lokid restarts, all its reachability records will be
+    /// Note that if Worktipsd restarts, all its reachability records will be
     /// updated to "true".
 
     auto cb = [this, sn_pk, reachable](const sn_response_t&& res) {
         if (res.error_code != SNodeError::NO_ERROR) {
-            LOKI_LOG(warn, "Could not report node status");
+            WORKTIPS_LOG(warn, "Could not report node status");
             return;
         }
 
         if (!res.body) {
-            LOKI_LOG(warn, "Empty body on Lokid report node status");
+            WORKTIPS_LOG(warn, "Empty body on Worktipsd report node status");
             return;
         }
 
@@ -1089,27 +1089,27 @@ void ServiceNode::report_node_reachability(const sn_pub_key_t& sn_pk,
             if (status == "OK") {
                 success = true;
             } else {
-                LOKI_LOG(warn, "Could not report node. Status: {}", status);
+                WORKTIPS_LOG(warn, "Could not report node. Status: {}", status);
             }
         } catch (...) {
-            LOKI_LOG(error,
+            WORKTIPS_LOG(error,
                      "Could not report node status: bad json in response");
         }
 
         if (success) {
             if (reachable) {
-                LOKI_LOG(debug, "Successfully reported node as reachable: {}",
+                WORKTIPS_LOG(debug, "Successfully reported node as reachable: {}",
                          sn_pk);
                 this->reach_records_.expire(sn_pk);
             } else {
-                LOKI_LOG(debug, "Successfully reported node as unreachable {}",
+                WORKTIPS_LOG(debug, "Successfully reported node as unreachable {}",
                          sn_pk);
                 this->reach_records_.set_reported(sn_pk);
             }
         }
     };
 
-    lokid_client_.make_lokid_request("report_peer_storage_server_status",
+    worktipsd_client_.make_worktipsd_request("report_peer_storage_server_status",
                                      params, std::move(cb));
 }
 
@@ -1118,7 +1118,7 @@ void ServiceNode::process_reach_test_response(sn_response_t&& res,
 
     if (res.error_code == SNodeError::NO_ERROR) {
         // NOTE: We don't need to report healthy nodes that previously has been
-        // not been reported to Lokid as unreachable but I'm worried there might
+        // not been reported to Worktipsd as unreachable but I'm worried there might
         // be some race conditions, so do it anyway for now.
         report_node_reachability(pk, true);
         return;
@@ -1135,7 +1135,7 @@ void ServiceNode::process_blockchain_test_response(
     sn_response_t&& res, blockchain_test_answer_t our_answer,
     sn_record_t testee, uint64_t bc_height) {
 
-    LOKI_LOG(debug,
+    WORKTIPS_LOG(debug,
              "Processing blockchain test response from: {} at height: {}",
              testee, bc_height);
 
@@ -1150,18 +1150,18 @@ void ServiceNode::process_blockchain_test_response(
 
             if (our_answer.res_height == their_height) {
                 result = ResultType::OK;
-                LOKI_LOG(debug, "Success.");
+                WORKTIPS_LOG(debug, "Success.");
             } else {
                 result = ResultType::MISMATCH;
-                LOKI_LOG(debug, "Failed: incorrect answer.");
+                WORKTIPS_LOG(debug, "Failed: incorrect answer.");
             }
 
         } catch (...) {
-            LOKI_LOG(debug, "Failed: could not find answer in json.");
+            WORKTIPS_LOG(debug, "Failed: could not find answer in json.");
         }
 
     } else {
-        LOKI_LOG(debug, "Failed to send a blockchain test request to snode: {}",
+        WORKTIPS_LOG(debug, "Failed to send a blockchain test request to snode: {}",
                  testee);
     }
 
@@ -1176,7 +1176,7 @@ bool ServiceNode::derive_tester_testee(uint64_t blk_height, sn_record_t& tester,
     members.push_back(our_address_);
 
     if (members.size() < 2) {
-        LOKI_LOG(debug, "Could not initiate peer test: swarm too small");
+        WORKTIPS_LOG(debug, "Could not initiate peer test: swarm too small");
         return false;
     }
 
@@ -1187,7 +1187,7 @@ bool ServiceNode::derive_tester_testee(uint64_t blk_height, sn_record_t& tester,
         block_hash = block_hash_;
     } else if (blk_height < block_height_) {
 
-        LOKI_LOG(debug, "got storage test request for an older block: {}/{}",
+        WORKTIPS_LOG(debug, "got storage test request for an older block: {}/{}",
                  blk_height, block_height_);
 
         const auto it =
@@ -1199,19 +1199,19 @@ bool ServiceNode::derive_tester_testee(uint64_t blk_height, sn_record_t& tester,
         if (it != block_hashes_cache_.end()) {
             block_hash = it->second;
         } else {
-            LOKI_LOG(debug, "Could not find hash for a given block height");
-            // TODO: request from lokid?
+            WORKTIPS_LOG(debug, "Could not find hash for a given block height");
+            // TODO: request from worktipsd?
             return false;
         }
     } else {
         assert(false);
-        LOKI_LOG(debug, "Could not find hash: block height is in the future");
+        WORKTIPS_LOG(debug, "Could not find hash: block height is in the future");
         return false;
     }
 
     uint64_t seed;
     if (block_hash.size() < sizeof(seed)) {
-        LOKI_LOG(error, "Could not initiate peer test: invalid block hash");
+        WORKTIPS_LOG(error, "Could not initiate peer test: invalid block hash");
         return false;
     }
 
@@ -1239,7 +1239,7 @@ MessageTestStatus ServiceNode::process_storage_test_req(
     std::string block_hash;
 
     if (blk_height > block_height_) {
-        LOKI_LOG(debug, "Our blockchain is behind, height: {}, requested: {}",
+        WORKTIPS_LOG(debug, "Our blockchain is behind, height: {}, requested: {}",
                  block_height_, blk_height);
         return MessageTestStatus::RETRY;
     }
@@ -1251,17 +1251,17 @@ MessageTestStatus ServiceNode::process_storage_test_req(
         derive_tester_testee(blk_height, tester, testee);
 
         if (testee != our_address_) {
-            LOKI_LOG(error, "We are NOT the testee for height: {}", blk_height);
+            WORKTIPS_LOG(error, "We are NOT the testee for height: {}", blk_height);
             return MessageTestStatus::WRONG_REQ;
         }
 
         if (tester.pub_key_base32z() != tester_pk) {
-            LOKI_LOG(debug, "Wrong tester: {}, expected: {}", tester_pk,
+            WORKTIPS_LOG(debug, "Wrong tester: {}, expected: {}", tester_pk,
                      tester.sn_address());
             abort_if_integration_test();
             return MessageTestStatus::WRONG_REQ;
         } else {
-            LOKI_LOG(trace, "Tester is valid: {}", tester_pk);
+            WORKTIPS_LOG(trace, "Tester is valid: {}", tester_pk);
         }
     }
 
@@ -1279,14 +1279,14 @@ bool ServiceNode::select_random_message(Item& item) {
 
     uint64_t message_count;
     if (!db_->get_message_count(message_count)) {
-        LOKI_LOG(error, "Could not count messages in the database");
+        WORKTIPS_LOG(error, "Could not count messages in the database");
         return false;
     }
 
-    LOKI_LOG(debug, "total messages: {}", message_count);
+    WORKTIPS_LOG(debug, "total messages: {}", message_count);
 
     if (message_count == 0) {
-        LOKI_LOG(debug, "No messages in the database to initiate a peer test");
+        WORKTIPS_LOG(debug, "No messages in the database to initiate a peer test");
         return false;
     }
 
@@ -1295,7 +1295,7 @@ bool ServiceNode::select_random_message(Item& item) {
     const auto msg_idx = util::uniform_distribution_portable(message_count);
 
     if (!db_->retrieve_by_index(msg_idx, item)) {
-        LOKI_LOG(error, "Could not retrieve message by index: {}", msg_idx);
+        WORKTIPS_LOG(error, "Could not retrieve message by index: {}", msg_idx);
         return false;
     }
 
@@ -1314,7 +1314,7 @@ void ServiceNode::initiate_peer_test() {
     constexpr uint64_t TEST_BLOCKS_BUFFER = 4;
 
     if (block_height_ < TEST_BLOCKS_BUFFER) {
-        LOKI_LOG(debug, "Height {} is too small, skipping all tests",
+        WORKTIPS_LOG(debug, "Height {} is too small, skipping all tests",
                  block_height_);
         return;
     }
@@ -1325,7 +1325,7 @@ void ServiceNode::initiate_peer_test() {
         return;
     }
 
-    LOKI_LOG(trace, "For height {}; tester: {} testee: {}", test_height,
+    WORKTIPS_LOG(trace, "For height {}; tester: {} testee: {}", test_height,
              tester, testee);
 
     if (tester != our_address_) {
@@ -1338,9 +1338,9 @@ void ServiceNode::initiate_peer_test() {
         // 2.1. Select a message
         Item item;
         if (!this->select_random_message(item)) {
-            LOKI_LOG(debug, "Could not select a message for testing");
+            WORKTIPS_LOG(debug, "Could not select a message for testing");
         } else {
-            LOKI_LOG(trace, "Selected random message: {}, {}", item.hash,
+            WORKTIPS_LOG(trace, "Selected random message: {}, {}", item.hash,
                      item.data);
 
             // 2.2. Initiate testing request
@@ -1355,14 +1355,14 @@ void ServiceNode::initiate_peer_test() {
     {
 
         // Distance between two consecutive checkpoints,
-        // should be in sync with lokid
+        // should be in sync with worktipsd
         constexpr uint64_t CHECKPOINT_DISTANCE = 4;
         // We can be confident that blockchain data won't
         // change if we go this many blocks back
         constexpr uint64_t SAFETY_BUFFER_BLOCKS = CHECKPOINT_DISTANCE * 3;
 
         if (block_height_ <= SAFETY_BUFFER_BLOCKS) {
-            LOKI_LOG(debug,
+            WORKTIPS_LOG(debug,
                      "Blockchain too short, skipping blockchain testing.");
             return;
         }
@@ -1412,16 +1412,16 @@ void ServiceNode::bootstrap_swarms(
     const std::vector<swarm_id_t>& swarms) const {
 
     if (swarms.empty()) {
-        LOKI_LOG(info, "Bootstrapping all swarms");
+        WORKTIPS_LOG(info, "Bootstrapping all swarms");
     } else {
-        LOKI_LOG(info, "Bootstrapping swarms: {}", vec_to_string(swarms));
+        WORKTIPS_LOG(info, "Bootstrapping swarms: {}", vec_to_string(swarms));
     }
 
     const auto& all_swarms = swarm_->all_valid_swarms();
 
     std::vector<Item> all_entries;
     if (!get_all_messages(all_entries)) {
-        LOKI_LOG(error, "Could not retrieve entries from the database");
+        WORKTIPS_LOG(error, "Could not retrieve entries from the database");
         return;
     }
 
@@ -1433,7 +1433,7 @@ void ServiceNode::bootstrap_swarms(
     /// See what pubkeys we have
     std::unordered_map<std::string, swarm_id_t> cache;
 
-    LOKI_LOG(debug, "We have {} messages", all_entries.size());
+    WORKTIPS_LOG(debug, "We have {} messages", all_entries.size());
 
     std::unordered_map<swarm_id_t, std::vector<Item>> to_relay;
 
@@ -1447,7 +1447,7 @@ void ServiceNode::bootstrap_swarms(
             auto pk = user_pubkey_t::create(entry.pub_key, success);
 
             if (!success) {
-                LOKI_LOG(error, "Invalid pubkey in a message while "
+                WORKTIPS_LOG(error, "Invalid pubkey in a message while "
                                 "bootstrapping other nodes");
                 continue;
             }
@@ -1472,7 +1472,7 @@ void ServiceNode::bootstrap_swarms(
         }
     }
 
-    LOKI_LOG(trace, "Bootstrapping {} swarms", to_relay.size());
+    WORKTIPS_LOG(trace, "Bootstrapping {} swarms", to_relay.size());
 
     for (const auto& kv : to_relay) {
         const uint64_t swarm_id = kv.first;
@@ -1488,20 +1488,20 @@ void ServiceNode::relay_messages(const std::vector<Message>& messages,
                                  const std::vector<sn_record_t>& snodes) const {
     std::vector<std::string> data = serialize_messages(messages);
 
-    LOKI_LOG(info, "Relayed messages:");
+    WORKTIPS_LOG(info, "Relayed messages:");
     for (auto msg : messages) {
-        LOKI_LOG(info, "    {}", msg.data);
+        WORKTIPS_LOG(info, "    {}", msg.data);
     }
-    LOKI_LOG(info, "To Snodes:");
+    WORKTIPS_LOG(info, "To Snodes:");
     for (auto sn : snodes) {
-        LOKI_LOG(info, "    {}", sn);
+        WORKTIPS_LOG(info, "    {}", sn);
     }
 
     std::vector<signature> signatures;
     signatures.reserve(data.size());
     for (const auto& d : data) {
         const auto hash = hash_data(d);
-        signatures.push_back(generate_signature(hash, lokid_key_pair_));
+        signatures.push_back(generate_signature(hash, worktipsd_key_pair_));
     }
 
     std::vector<std::shared_ptr<request_t>> batches =
@@ -1512,7 +1512,7 @@ void ServiceNode::relay_messages(const std::vector<Message>& messages,
         attach_signature(batches[i], signatures[i]);
     }
 
-    LOKI_LOG(debug, "Serialised batches: {}", data.size());
+    WORKTIPS_LOG(debug, "Serialised batches: {}", data.size());
     for (const sn_record_t& sn : snodes) {
         for (const std::shared_ptr<request_t>& batch : batches) {
             relay_data_reliable(batch, sn);
@@ -1541,7 +1541,7 @@ void ServiceNode::set_difficulty_history(
             curr_pow_difficulty_ = difficulty;
         }
     }
-    LOKI_LOG(info, "Read PoW difficulty: {}", curr_pow_difficulty_.difficulty);
+    WORKTIPS_LOG(info, "Read PoW difficulty: {}", curr_pow_difficulty_.difficulty);
 }
 
 static void to_json(nlohmann::json& j, const test_result_t& val) {
@@ -1610,7 +1610,7 @@ int ServiceNode::get_curr_pow_difficulty() const {
 
 bool ServiceNode::get_all_messages(std::vector<Item>& all_entries) const {
 
-    LOKI_LOG(trace, "Get all messages");
+    WORKTIPS_LOG(trace, "Get all messages");
 
     return db_->retrieve("", all_entries, "");
 }
@@ -1623,9 +1623,9 @@ void ServiceNode::process_push_batch(const std::string& blob) {
 
     std::vector<message_t> messages = deserialize_messages(blob);
 
-    LOKI_LOG(trace, "Saving all: begin");
+    WORKTIPS_LOG(trace, "Saving all: begin");
 
-    LOKI_LOG(debug, "Got {} messages from peers, size: {}", messages.size(),
+    WORKTIPS_LOG(debug, "Got {} messages from peers, size: {}", messages.size(),
              blob.size());
 
 #ifndef DISABLE_POW
@@ -1635,7 +1635,7 @@ void ServiceNode::process_push_batch(const std::string& blob) {
         });
     messages.erase(it, messages.end());
     if (it != messages.end()) {
-        LOKI_LOG(
+        WORKTIPS_LOG(
             warn,
             "Some of the batch messages were removed due to incorrect PoW");
     }
@@ -1655,12 +1655,12 @@ void ServiceNode::process_push_batch(const std::string& blob) {
 
     save_bulk(items);
 
-    LOKI_LOG(trace, "Saving all: end");
+    WORKTIPS_LOG(trace, "Saving all: end");
 }
 
 bool ServiceNode::is_pubkey_for_us(const user_pubkey_t& pk) const {
     if (!swarm_) {
-        LOKI_LOG(error, "Swarm data missing");
+        WORKTIPS_LOG(error, "Swarm data missing");
         return false;
     }
     return swarm_->is_pubkey_for_us(pk);
@@ -1670,7 +1670,7 @@ std::vector<sn_record_t>
 ServiceNode::get_snodes_by_pk(const user_pubkey_t& pk) {
 
     if (!swarm_) {
-        LOKI_LOG(error, "Swarm data missing");
+        WORKTIPS_LOG(error, "Swarm data missing");
         return {};
     }
 
@@ -1686,7 +1686,7 @@ ServiceNode::get_snodes_by_pk(const user_pubkey_t& pk) {
             return si.snodes;
     }
 
-    LOKI_LOG(critical, "Something went wrong in get_snodes_by_pk");
+    WORKTIPS_LOG(critical, "Something went wrong in get_snodes_by_pk");
 
     return {};
 }
@@ -1695,11 +1695,11 @@ bool ServiceNode::is_snode_address_known(const std::string& sn_address) {
 
     // TODO: need more robust handling of uninitialized swarm_
     if (!swarm_) {
-        LOKI_LOG(error, "Swarm data missing");
+        WORKTIPS_LOG(error, "Swarm data missing");
         return false;
     }
 
     return swarm_->is_fully_funded_node(sn_address);
 }
 
-} // namespace loki
+} // namespace worktips

@@ -6,20 +6,20 @@ set(CMAKE_CXX_STANDARD 14)
 set(CXX_STANDARD_REQUIRED ON)
 
 set(SOURCES
-    src/lokid_key.cpp
-    include/lokid_key.h
+    src/worktipsd_key.cpp
+    include/worktipsd_key.h
     include/channel_encryption.hpp
     src/channel_encryption.cpp
     src/signature.cpp
     include/signature.h
-    ${CMAKE_CURRENT_LIST_DIR}/../vendors/loki/crypto-ops/crypto-ops.c
-    ${CMAKE_CURRENT_LIST_DIR}/../vendors/loki/crypto-ops/crypto-ops-data.c
-    ${CMAKE_CURRENT_LIST_DIR}/../vendors/loki/crypto-ops/crypto-ops.h
-    ${CMAKE_CURRENT_LIST_DIR}/../vendors/loki/crypto-ops/keccak.h
-    ${CMAKE_CURRENT_LIST_DIR}/../vendors/loki/crypto-ops/keccak.c
-    ${CMAKE_CURRENT_LIST_DIR}/../vendors/loki/crypto-ops/int-util.h
-    ${CMAKE_CURRENT_LIST_DIR}/../vendors/loki/crypto-ops/hash-ops.h
-    ${CMAKE_CURRENT_LIST_DIR}/../vendors/loki/crypto-ops/hash-ops.c
+    ${CMAKE_CURRENT_LIST_DIR}/../vendors/worktips/crypto-ops/crypto-ops.c
+    ${CMAKE_CURRENT_LIST_DIR}/../vendors/worktips/crypto-ops/crypto-ops-data.c
+    ${CMAKE_CURRENT_LIST_DIR}/../vendors/worktips/crypto-ops/crypto-ops.h
+    ${CMAKE_CURRENT_LIST_DIR}/../vendors/worktips/crypto-ops/keccak.h
+    ${CMAKE_CURRENT_LIST_DIR}/../vendors/worktips/crypto-ops/keccak.c
+    ${CMAKE_CURRENT_LIST_DIR}/../vendors/worktips/crypto-ops/int-util.h
+    ${CMAKE_CURRENT_LIST_DIR}/../vendors/worktips/crypto-ops/hash-ops.h
+    ${CMAKE_CURRENT_LIST_DIR}/../vendors/worktips/crypto-ops/hash-ops.c
 )
 
 add_library(crypto STATIC ${SOURCES})
@@ -37,7 +37,7 @@ target_include_directories(crypto
     ${CMAKE_CURRENT_LIST_DIR}/../vendors
 )
 
-loki_add_subdirectory(../utils utils)
+worktips_add_subdirectory(../utils utils)
 
 target_link_libraries(crypto PUBLIC utils)
 

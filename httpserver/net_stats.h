@@ -1,7 +1,7 @@
 #pragma once
 
 #include <set>
-#include "loki_logger.h"
+#include "worktips_logger.h"
 
 struct net_stats_t {
 
@@ -14,7 +14,7 @@ struct net_stats_t {
     void record_socket_open(int sockfd) {
 #ifdef INTEGRATION_TEST
         if (open_fds.find(sockfd) != open_fds.end()) {
-            LOKI_LOG(critical, "Already recorded as open: {}!", sockfd);
+            WORKTIPS_LOG(critical, "Already recorded as open: {}!", sockfd);
         }
 #endif
         open_fds.insert(sockfd);
@@ -23,7 +23,7 @@ struct net_stats_t {
     void record_socket_close(int sockfd) {
 #ifdef INTEGRATION_TEST
         if (open_fds.find(sockfd) == open_fds.end()) {
-            LOKI_LOG(critical, "Socket is NOT recorded as open: {}", sockfd);
+            WORKTIPS_LOG(critical, "Socket is NOT recorded as open: {}", sockfd);
         }
 #endif
         open_fds.erase(sockfd);

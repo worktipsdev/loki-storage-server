@@ -1,6 +1,6 @@
 #pragma once
 
-#include "loki_logger.h"
+#include "worktips_logger.h"
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/ssl/context.hpp>
 #include <boost/filesystem.hpp>
@@ -21,22 +21,22 @@ void generate_dh_pem(const char* dh_path) {
     const int generator = DH_GENERATOR_2;
     DH* dh = DH_new();
     if (dh == NULL) {
-        LOKI_LOG(error, "Alloc for dh failed");
+        WORKTIPS_LOG(error, "Alloc for dh failed");
         ERR_print_errors_fp(stderr);
         abort();
     }
-    LOKI_LOG(info, "Generating DH parameter, this might take a while...");
+    WORKTIPS_LOG(info, "Generating DH parameter, this might take a while...");
 
     const int res =
         DH_generate_parameters_ex(dh, prime_len, generator, nullptr);
 
     if (!res) {
-        LOKI_LOG(error, "Alloc for dh failed");
+        WORKTIPS_LOG(error, "Alloc for dh failed");
         ERR_print_errors_fp(stderr);
         abort();
     }
 
-    LOKI_LOG(info, "DH parameter done!");
+    WORKTIPS_LOG(info, "DH parameter done!");
     FILE* pFile = NULL;
     pFile = fopen(dh_path, "wt");
     PEM_write_DHparams(pFile, dh);
@@ -122,7 +122,7 @@ int mkcert(X509** x509p, EVP_PKEY** pkeyp, int bits, int serial, int days) {
     X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
                                (const unsigned char*)"localhost", -1, -1, 0);
     X509_NAME_add_entry_by_txt(name, "O", MBSTRING_ASC,
-                               (const unsigned char*)"Loki", -1, -1, 0);
+                               (const unsigned char*)"Worktips", -1, -1, 0);
 
     /* Its self signed so set the issuer name to be the same as the
      * subject.

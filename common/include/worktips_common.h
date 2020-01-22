@@ -19,7 +19,7 @@ struct sn_record_t {
 
   private:
     uint16_t port_;
-    std::string sn_address_; // Snode address (pubkey plus .snode, was used for lokinet)
+    std::string sn_address_; // Snode address (pubkey plus .snode, was used for worktipsnet)
     // TODO: create separate types for different encodings of pubkeys,
     // so if we confuse them, it will be a compiler error
     std::string pub_key_base_32z_; // We don't need this! (esp. since it is legacy key)
@@ -72,7 +72,7 @@ struct sn_record_t {
     }
 };
 
-namespace loki {
+namespace worktips {
 
 constexpr size_t MAINNET_USER_PUBKEY_SIZE = 66;
 constexpr size_t TESTNET_USER_PUBKEY_SIZE = 64;
@@ -102,7 +102,7 @@ inline void set_testnet() {
 
 inline size_t get_user_pubkey_size() {
     /// TODO: eliminate the need to check condition every time
-    if (loki::is_mainnet()) {
+    if (worktips::is_mainnet()) {
         return MAINNET_USER_PUBKEY_SIZE;
     } else {
         return TESTNET_USER_PUBKEY_SIZE;
@@ -158,7 +158,7 @@ struct message_t {
           nonce(nonce) {}
 };
 
-} // namespace loki
+} // namespace worktips
 
 namespace std {
 

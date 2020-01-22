@@ -38,11 +38,11 @@ set(SRC_FILES
 
 add_library(httpserver_lib STATIC ${HEADER_FILES} ${SRC_FILES})
 
-loki_add_subdirectory(../common common)
-loki_add_subdirectory(../storage storage)
-loki_add_subdirectory(../utils utils)
-loki_add_subdirectory(../pow pow)
-loki_add_subdirectory(../crypto crypto)
+worktips_add_subdirectory(../common common)
+worktips_add_subdirectory(../storage storage)
+worktips_add_subdirectory(../utils utils)
+worktips_add_subdirectory(../pow pow)
+worktips_add_subdirectory(../crypto crypto)
 find_package(OpenSSL REQUIRED)
 
 find_package(Boost
@@ -66,7 +66,7 @@ set_property(TARGET httpserver_lib PROPERTY CXX_STANDARD 14)
 target_include_directories(httpserver_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${Boost_INCLUDE_DIRS})
 target_link_libraries(httpserver_lib PUBLIC ${Boost_LIBRARIES})
 
-set(BIN_NAME loki-storage)
+set(BIN_NAME worktips-storage)
 
 add_executable(httpserver main.cpp)
 set_target_properties(httpserver PROPERTIES OUTPUT_NAME ${BIN_NAME})

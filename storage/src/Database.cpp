@@ -1,11 +1,11 @@
 #include "Database.hpp"
-#include "loki_logger.h"
+#include "worktips_logger.h"
 #include "utils.hpp"
 
 #include "sqlite3.h"
 #include <exception>
 
-namespace loki {
+namespace worktips {
 using namespace storage;
 
 constexpr auto CLEANUP_PERIOD = std::chrono::seconds(10);
@@ -170,14 +170,14 @@ bool Database::get_message_count(uint64_t& count) {
             count = sqlite3_column_int64(get_row_count_stmt, 0);
             success = true;
         } else {
-            LOKI_LOG(critical, "Could not execute `count` db statement");
+            WORKTIPS_LOG(critical, "Could not execute `count` db statement");
             break;
         }
     }
 
     rc = sqlite3_reset(get_by_index_stmt);
     if (rc != SQLITE_OK) {
-        LOKI_LOG(critical, "sqlite reset error: [{}], {}", rc,
+        WORKTIPS_LOG(critical, "sqlite reset error: [{}], {}", rc,
                  sqlite3_errmsg(db));
         success = false;
     }
@@ -222,7 +222,7 @@ bool Database::retrieve_by_index(uint64_t index, Item& item) {
             success = true;
             break;
         } else {
-            LOKI_LOG(critical,
+            WORKTIPS_LOG(critical,
                      "Could not execute `retrieve by index` db statement");
             break;
         }
@@ -230,7 +230,7 @@ bool Database::retrieve_by_index(uint64_t index, Item& item) {
 
     rc = sqlite3_reset(get_by_index_stmt);
     if (rc != SQLITE_OK) {
-        LOKI_LOG(critical, "sqlite reset error: [{}], {}", rc,
+        WORKTIPS_LOG(critical, "sqlite reset error: [{}], {}", rc,
                  sqlite3_errmsg(db));
         success = false;
     }
@@ -255,7 +255,7 @@ bool Database::retrieve_by_hash(const std::string& msg_hash, Item& item) {
             success = true;
             break;
         } else {
-            LOKI_LOG(
+            WORKTIPS_LOG(
                 critical,
                 "Could not execute `retrieve by hash` db statement, ec: {}",
                 rc);
@@ -265,7 +265,7 @@ bool Database::retrieve_by_hash(const std::string& msg_hash, Item& item) {
 
     rc = sqlite3_reset(get_by_hash_stmt);
     if (rc != SQLITE_OK) {
-        LOKI_LOG(critical, "sqlite reset error: [{}], {}", rc,
+        WORKTIPS_LOG(critical, "sqlite reset error: [{}], {}", rc,
                  sqlite3_errmsg(db));
         success = false;
     }
@@ -305,7 +305,7 @@ bool Database::store(const std::string& hash, const std::string& pubKey,
             result = true;
             break;
         } else {
-            LOKI_LOG(critical, "Could not execute `store` db statement, ec: {}",
+            WORKTIPS_LOG(critical, "Could not execute `store` db statement, ec: {}",
                      rc);
             break;
         }
@@ -313,7 +313,7 @@ bool Database::store(const std::string& hash, const std::string& pubKey,
 
     rc = sqlite3_reset(stmt);
     if (rc != SQLITE_OK && rc != SQLITE_CONSTRAINT) {
-        LOKI_LOG(critical, "sqlite reset error: [{}], {}", rc,
+        WORKTIPS_LOG(critical, "sqlite reset error: [{}], {}", rc,
                  sqlite3_errmsg(db));
     }
     return result;
@@ -370,7 +370,7 @@ bool Database::retrieve(const std::string& pubKey, std::vector<Item>& items,
             auto item = extract_item(stmt);
             items.push_back(std::move(item));
         } else {
-            LOKI_LOG(critical,
+            WORKTIPS_LOG(critical,
                      "Could not execute `retrieve` db statement, ec: {}", rc);
             break;
         }
@@ -378,11 +378,11 @@ bool Database::retrieve(const std::string& pubKey, std::vector<Item>& items,
 
     int rc = sqlite3_reset(stmt);
     if (rc != SQLITE_OK) {
-        LOKI_LOG(critical, "sqlite reset error: [{}], {}", rc,
+        WORKTIPS_LOG(critical, "sqlite reset error: [{}], {}", rc,
                  sqlite3_errmsg(db));
         success = false;
     }
     return success;
 }
 
-} // namespace loki
+} // namespace worktips

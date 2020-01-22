@@ -1,4 +1,4 @@
-#include "lokid_key.h"
+#include "worktipsd_key.h"
 #include "utils.hpp"
 extern "C" {
 #include "sodium/private/ed25519_ref10.h"
@@ -15,12 +15,12 @@ extern "C" {
 
 namespace fs = boost::filesystem;
 
-namespace loki {
+namespace worktips {
 
-private_key_t lokidKeyFromHex(const std::string& private_key_hex) {
+private_key_t worktipsdKeyFromHex(const std::string& private_key_hex) {
     if (private_key_hex.size() != KEY_LENGTH * 2)
         throw std::runtime_error(
-                "Lokid key data is invalid: expected " + std::to_string(KEY_LENGTH) + " bytes not " +
+                "Worktipsd key data is invalid: expected " + std::to_string(KEY_LENGTH) + " bytes not " +
                 std::to_string(private_key_hex.size()) + " bytes");
 
     const auto bytes = util::hex_to_bytes(private_key_hex);
@@ -33,7 +33,7 @@ private_key_t lokidKeyFromHex(const std::string& private_key_hex) {
 private_key_ed25519_t
 private_key_ed25519_t::from_hex(const std::string& sc_hex) {
     if (sc_hex.size() != private_key_ed25519_t::LENGTH * 2)
-        throw std::runtime_error("Lokid key data is invalid: expected " +
+        throw std::runtime_error("Worktipsd key data is invalid: expected " +
                                  std::to_string(private_key_ed25519_t::LENGTH) +
                                  " bytes not " + std::to_string(sc_hex.size()) +
                                  " bytes");
@@ -72,4 +72,4 @@ public_key_t derive_pubkey_ed25519(const private_key_ed25519_t& seckey) {
     return pubkey;
 }
 
-} // namespace loki
+} // namespace worktips

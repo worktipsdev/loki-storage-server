@@ -5,7 +5,7 @@
 
 #include <string>
 
-using namespace loki;
+using namespace worktips;
 
 BOOST_AUTO_TEST_SUITE(serialization)
 

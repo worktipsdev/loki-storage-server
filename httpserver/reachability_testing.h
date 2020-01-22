@@ -1,10 +1,10 @@
 #pragma once
 
-#include "loki_common.h"
+#include "worktips_common.h"
 #include <chrono>
 #include <unordered_map>
 
-namespace loki {
+namespace worktips {
 
 namespace detail {
 
@@ -19,7 +19,7 @@ class reach_record_t {
     // (and hasn't come back online)
     time_point_t first_failure;
     time_point_t last_tested;
-    // whether it's been reported to Lokid
+    // whether it's been reported to Worktipsd
     bool reported = false;
 
     reach_record_t();
@@ -42,7 +42,7 @@ class reachability_records_t {
     // std::vector<> priority_nodes() const;
 
     // Records node as unreachable, return `true` if the node should be
-    // reported to Lokid as being unreachable for a long time
+    // reported to Worktipsd as being unreachable for a long time
     bool record_unreachable(const sn_pub_key_t& sn);
 
     // Expires a node, removing it from offline nodes.  Returns true if found
@@ -55,4 +55,4 @@ class reachability_records_t {
     boost::optional<sn_pub_key_t> next_to_test();
 };
 
-} // namespace loki
+} // namespace worktips
